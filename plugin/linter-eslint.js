@@ -104,15 +104,6 @@ class EsLinter {
           return;
       }
 
-      // JSHint has a particular format for defining globals. `false` means that the
-      // global is not allowed to be redefined. `true` means it is allowed to be
-      // redefined. Since the passed imports are probably not great for definition,
-      // mark them as false.
-    //   var predefinedGlobals = {};
-    //   globals.forEach(function (symbol) {
-    //       predefinedGlobals[symbol] = false;
-    //   });
-
       files.forEach(function (file) {
           if (file.getBasename() === '.eslintrc')
           return;
