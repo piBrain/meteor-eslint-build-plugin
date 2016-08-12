@@ -1,70 +1,49 @@
-import util from 'util';
-import Future from 'fibers/future'
-import eslint from 'eslint';
+import { linter } from 'eslint'
+var radium = Npm.require('radium')
+const stripJsonComments = Npm.require('strip-json-comments')
 
-Plugin.registerLinter({
-  extensions: ["js","jsx"],
-  filenames: [".eslintrc"]
-}, function () {
-  var linter = new EsLinter();
-  return linter;
-});
+Plugin.registerLinter(
+    {
+        extensions: ["js","jsx"],
+        filenames: [".eslintrc"]
+    },
+    () => {
+        return new EsLinter();
+    }
+);
 
 class EsLinter {
-  // packageName -> { config (json),
-  //                  files: { [pathInPackage,arch] -> { hash, errors }}}
+
   constructor() {
 
       this.defaults = JSON.stringify({
-          ecmaVersion: 6,
-          sourceType: 'module',
-          ecmaFeatures: {
-              jsx: true
-              globalReturn: false
-          },
-          parser: "esprima",
-          rules: {
-              no-extra-semi: "error",
-              no-obj-calls: "error",
-              use-isnan: "error",
-              no-unreachable: "warn",
-              acessor-pairs: "warn",
-              complexity: 15,
-              default-case: "error",
-              no-eval: "error",
-              no-implicit-globals: "error",
-              no-undefined: "error",
-              no-undef: "error",
-              no-unused-vars: "warn",
-
-              quotes: ["error","double"]
-          }
           env: {
-              browser: true,
-              node: true,
-              mocha: true,
-              meteor: true
-              mongo: true,
-
+            meteor: true,
+            browser: true
+          },
+          parserOptions: {
+            ecmaVersion: 6,
+            sourceType: "module",
+            ecmaFeatures: {
+              jsx: true
+            }
           }
-
       });
       this._cacheByPackage = {};
   }
 
-  processFilesForPackage (files, options) {
-      var self = this;
+  processFilesForPackage(files, options) {
       var globals = options.globals;
 
       // Assumes that this method gets called once per package.
-      var packageName = files[0].getPackageName();
-      if (! self._cacheByPackage.hasOwnProperty(packageName)) {
-          self._cacheByPackage[packageName] = {
-              configString: DEFAULT_CONFIG,
+      const packageName = files[0].getPackageName();
+      if (! this._cacheByPackage.hasOwnProperty(packageName)) {
+          this._cacheByPackage[packageName] = {
+              configString: this.defaults,
               files: {}
           };
       }
-      var cache = self._cacheByPackage[packageName];
+      const cache = this._cacheByPackage[packageName];
 
       var configs = files.filter(function (file) {
           return file.getBasename() === '.eslintrc';
@@ -73,7 +52,7 @@ class EsLinter {
           configs[0].error({
               message: "Found multiple .eslintrc files in package " + packageName +
               ": " +
-              configs.map(function (c) { return c.getPathInPackage(); }).join(', ')
+              configs.map((c) => { return c.getPathInPackage(); }).join(', ')
           });
           return;
       }
@@ -86,17 +65,17 @@ class EsLinter {
               cache.configString = newConfigString;
           }
       } else {
-          if (cache.configString !== DEFAULT_CONFIG) {
+          if (cache.configString !== this.defaults) {
               // Reset cache.
               cache.files = {};
-              cache.configString = DEFAULT_CONFIG;
+              cache.configString = this.defaults;
           }
       }
 
       try {
-          var config = JSON.parse(cache.configString);
+          var config = JSON.parse(stripJsonComments(cache.configString));
       } catch (err) {
-          // This should really not happen for DEFAULT_CONFIG :)
+          // This should really not happen for this.defaults :)
           configs[0].error({
               message: "Failed to parse " + configs[0].getPathInPackage() +
               ": not valid JSON: " + err.message
@@ -104,35 +83,34 @@ class EsLinter {
           return;
       }
 
-      files.forEach(function (file) {
-          if (file.getBasename() === '.eslintrc')
-          return;
+      files.map((file) => {
+          if (file.getBasename() === '.eslintrc') return
 
           // skip files we already linted
-          var cacheKey = JSON.stringify([file.getPathInPackage(), file.getArch()]);
+          let cacheKey = JSON.stringify([file.getPathInPackage(), file.getArch()]);
           if (cache.files.hasOwnProperty(cacheKey) &&
           cache.files[cacheKey].hash === file.getSourceHash()) {
-              reportErrors(file, cache.files[cacheKey].errors);
+              this.reportErrors(file, cache.files[cacheKey].errors);
               return;
           }
 
-          var errors = [];
-          if (! eslint(file.getContentsAsString(), config)) {
-              errors = eslint.errors;
-              reportErrors(file, errors);
-          }
+          let errors = linter.verify(file.getContentsAsString(), config);
+          if(errors) this.reportErrors(file, errors);
+
           cache.files[cacheKey] = { hash: file.getSourceHash(), errors: errors };
       });
 
-      function reportErrors(file, errors) {
-          errors.forEach(function (error) {
-              file.error({
-                  message: error.reason,
-                  line: error.line,
-                  column: error.character
-              });
+
+  }
+
+  reportErrors(file, errors) {
+      errors.map((err) => {
+          file.error({
+              message: err.message,
+              line: err.line,
+              column: err.column
           });
-      }
+      });
   }
 
 }
